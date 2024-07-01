@@ -6,6 +6,7 @@ on:
     paths:
       - '**'
 
+permissions: read-all
 concurrency:
   group: ci-image-${{ github.head_ref || github.ref }}-${{ github.repository }}
   cancel-in-progress: true
@@ -18,7 +19,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
       - run: |
           git fetch --prune --unshallow
           sudo apt update && sudo apt install -y jq
@@ -35,6 +36,21 @@ jobs:
           echo "::set-output name=matrix::{\"include\": $content }"
   core:
     uses: ./.github/workflows/reusable-build-flavor.yaml
+    permissions:
+      id-token: write  # OIDC support
+      contents: write
+      security-events: write
+      actions: read
+      attestations: read
+      checks: read
+      deployments: read
+      discussions: read
+      issues: read
+      packages: read
+      pages: read
+      pull-requests: read
+      repository-projects: read
+      statuses: read
     secrets: inherit
     with:
       flavor: ${{ matrix.flavor }}
@@ -136,7 +152,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - flavor: opensuse # Kubo test needs systemd version 252+ which atm is not available in Leap
+          - flavor: opensuse  # Kubo test needs systemd version 252+ which atm is not available in Leap
             flavorRelease: tumbleweed
   reset:
     uses: ./.github/workflows/reusable-qemu-reset-test.yaml
@@ -216,7 +232,7 @@ jobs:
       flavor: ${{ matrix.flavor }}
       flavor_release: ${{ matrix.flavorRelease }}
       family: ${{ matrix.family }}
-      release_matcher: ${{ matrix.releaseMatcher }} # introduced so tests can be green while we wait for the kairos release with the latest flavor release
+      release_matcher: ${{ matrix.releaseMatcher }}  # introduced so tests can be green while we wait for the kairos release with the latest flavor release
     needs:
     - core
     strategy:
@@ -224,8 +240,8 @@ jobs:
       matrix:
         include:
           # cant do alpine yet as it hasnt been released with the proper name
-          #- flavor: alpine
-          #  flavorRelease: "3.19"
+          # - flavor: alpine
+          #   flavorRelease: "3.19"
           - flavor: opensuse
             flavorRelease: leap-15.6
             family: opensuse
@@ -267,6 +283,21 @@ jobs:
           - "leap-15.6"
   standard:
     uses: ./.github/workflows/reusable-build-provider.yaml
+    permissions:
+      id-token: write  # OIDC support
+      contents: write
+      security-events: write
+      actions: read
+      attestations: read
+      checks: read
+      deployments: read
+      discussions: read
+      issues: read
+      packages: read
+      pages: read
+      pull-requests: read
+      repository-projects: read
+      statuses: read
     secrets: inherit
     with:
       flavor: ${{ matrix.flavor }}
@@ -331,7 +362,7 @@ jobs:
       flavor: ${{ matrix.flavor }}
       flavor_release: ${{ matrix.flavorRelease }}
       family: ${{ matrix.family }}
-      release_matcher: ${{ matrix.releaseMatcher }} # introduced so tests can be green while we wait for the kairos release with the latest flavor release
+      release_matcher: ${{ matrix.releaseMatcher }}  # introduced so tests can be green while we wait for the kairos release with the latest flavor release
     needs:
       - standard
     strategy:
@@ -339,13 +370,13 @@ jobs:
       max-parallel: 2
       matrix:
         include:
+          # cant do alpine yet as it hasnt been released with the proper name
+          # - flavor: "alpine"
+          #   flavorRelease: "3.19"
           - flavor: "opensuse"
             flavorRelease: "leap-15.6"
             family: "opensuse"
             releaseMatcher: "leap-15.5"
-          # cant do alpine yet as it hasnt been released with the proper name
-          #- flavor: "alpine"
-          #  flavorRelease: "3.19"
   notify:
     runs-on: ubuntu-latest
     if: failure()
@@ -364,7 +395,7 @@ jobs:
       - various
       - standard-upgrade-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
       - run: |
           git fetch --prune --unshallow
       - name: save commit-message
@@ -372,7 +403,7 @@ jobs:
         run: echo "COMMIT_MSG=$(git log -1 --pretty=format:%s)" >> $GITHUB_ENV
       - name: notify if failure
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }} && failure()
-        uses: slackapi/slack-github-action@v1.26.0
+        uses: slackapi/slack-github-action@70cd7be8e40a46e8b0eced40b0de447bdb42f68e # v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

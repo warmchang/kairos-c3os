@@ -1,41 +1,28 @@
 VERSION 0.6
-FROM alpine
-ARG REGISTRY_AND_ORG=quay.io/kairos
-ARG IMAGE
-ARG SUPPORT=official # not using until this is defined in https://github.com/kairos-io/kairos/issues/1527
-ARG GITHUB_REPO=kairos-io/kairos
-# renovate: datasource=docker depName=quay.io/luet/base
-ARG LUET_VERSION=0.35.2
-# renovate: datasource=docker depName=aquasec/trivy
-ARG TRIVY_VERSION=0.51.4
-# renovate: datasource=github-releases depName=kairos-io/kairos-framework
-ARG KAIROS_FRAMEWORK_VERSION=v2.8.5
-ARG COSIGN_SKIP=".*quay.io/kairos/.*"
-# TODO: rename ISO_NAME to something like ARTIFACT_NAME because there are place where we use ISO_NAME to refer to the artifact name
+FROM alpine:3.19
 
-IF [ "$FLAVOR" = "ubuntu" ]
-    ARG COSIGN_REPOSITORY=raccos/releases-orange
-ELSE
-    ARG COSIGN_REPOSITORY=raccos/releases-teal
-END
-ARG COSIGN_EXPERIMENTAL=0
-ARG CGO_ENABLED=0
-# renovate: datasource=docker depName=quay.io/kairos/osbuilder-tools versioning=semver-coerced
-ARG OSBUILDER_VERSION=v0.201.0
-ARG OSBUILDER_IMAGE=quay.io/kairos/osbuilder-tools:$OSBUILDER_VERSION
-ARG GOLINT_VERSION=1.52.2
-# renovate: datasource=docker depName=golang
-ARG GO_VERSION=1.20
-# renovate: datasource=docker depName=hadolint/hadolint versioning=docker
+# renovate: datasource=docker depName=quay.io/luet/base versioning=semver
+ARG LUET_VERSION=0.35.2
+# renovate: datasource=docker depName=aquasec/trivy versioning=semver
+ARG TRIVY_VERSION=0.51.4
+# renovate: datasource=docker depName=quay.io/kairos/framework versioning=semver
+ARG KAIROS_FRAMEWORK_VERSION=v2.9.0
+# renovate: datasource=docker depName=quay.io/kairos/osbuilder-tools versioning=semver
+ARG OSBUILDER_VERSION=v0.300.1
+# renovate: datasource=docker depName=golang versioning=semver
+ARG GO_VERSION=1.22
+# renovate: datasource=docker depName=hadolint/hadolint
 ARG HADOLINT_VERSION=2.12.0-alpine
-# renovate: datasource=docker depName=renovate/renovate versioning=docker
+# renovate: datasource=docker depName=renovate/renovate
 ARG RENOVATE_VERSION=37
-# renovate: datasource=docker depName=koalaman/shellcheck-alpine versioning=docker
+# renovate: datasource=docker depName=koalaman/shellcheck-alpine versioning=semver
 ARG SHELLCHECK_VERSION=v0.10.0
 
+ARG IMAGE
 ARG IMAGE_REPOSITORY_ORG=quay.io/kairos
-
+ARG OSBUILDER_IMAGE=quay.io/kairos/osbuilder-tools:$OSBUILDER_VERSION
 ARG K3S_VERSION
+ARG CGO_ENABLED=0
 
 all:
   ARG SECURITY_SCANS=true
@@ -169,7 +156,7 @@ shellcheck-lint:
     FROM koalaman/shellcheck-alpine:$SHELLCHECK_VERSION
     WORKDIR /mnt
     COPY . .
-    RUN find . -name "*.sh" -print | xargs -r -n1 shellcheck
+    RUN find . -name "*.sh" ! -path "./examples/*" -print | xargs -r -n1 shellcheck
 
 yamllint:
     FROM cytopia/yamllint
@@ -331,21 +318,34 @@ uki-iso:
     ARG ENKI_FLAGS
     ARG ENKI_CREATE_CI_KEYS # If set, it will create keys for the UKI image. Good for testing
     ARG ENKI_OUTPUT_TYPE=iso # Set output type, iso, container, uki file
+    ARG ENKI_OVERLAY_DIR # Overlay directory to be copied to the image
+    ARG ENKI_KEYS_DIR # Directory where the keys are stored
     FROM $OSBUILDER_IMAGE
     WORKDIR /build
     RUN mkdir -p /keys
     IF [ "$ENKI_CREATE_CI_KEYS" != "" ]
         RUN enki genkey -e 7 --output /keys Test
+    ELSE IF [ "$ENKI_KEYS_DIR" != "" ]
+        COPY $ENKI_KEYS_DIR /keys
     ELSE
-        COPY keys/ /keys
+        RUN echo "No keys provided, using the test ones"
+        COPY tests/keys/* /keys
     END
-    RUN --no-cache enki build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE} ${ENKI_FLAGS}
+
+    IF [ "$ENKI_OVERLAY_DIR" != "" ]
+        COPY $ENKI_OVERLAY_DIR /overlay-iso
+        RUN --no-cache enki build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE} --overlay-iso /overlay-iso ${ENKI_FLAGS}
+    ELSE
+        RUN --no-cache enki build-uki $BASE_IMAGE --output-dir /build/ -k /keys --output-type ${ENKI_OUTPUT_TYPE} ${ENKI_FLAGS}
+    END
+
+
     IF [ "$ENKI_OUTPUT_TYPE" == "iso" ]
         SAVE ARTIFACT /build/*.iso AS LOCAL build/
     ELSE IF [ "$ENKI_OUTPUT_TYPE" == "container" ]
         SAVE ARTIFACT /build/*.tar AS LOCAL build/
     ELSE IF [ "$ENKI_OUTPUT_TYPE" == "uki" ]
-        SAVE ARTIFACT /build/*.efi AS LOCAL build/
+        SAVE ARTIFACT /build/* AS LOCAL build/
     END
 
 # WARNING the following targets are just for development purposes, use them at your own risk
@@ -619,7 +619,7 @@ arm-image:
   COPY --platform=linux/arm64 +image-rootfs/rootfs /build/image
   # With docker is required for loop devices
   WITH DOCKER --allow-privileged
-    RUN /build-arm-image.sh --use-lvm --model $MODEL --directory "/build/image" /build/$IMAGE_NAME
+    RUN /build-arm-image.sh --model $MODEL --directory "/build/image" /build/$IMAGE_NAME
   END
   IF [ "$COMPRESS_IMG" = "true" ]
     IF [ "$IMG_COMPRESSION" = "zstd" ]

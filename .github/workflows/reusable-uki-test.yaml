@@ -16,6 +16,7 @@ on:
         required: true
         type: string
 
+permissions: read-all
 jobs:
   test-uki:
     permissions:
@@ -27,10 +28,11 @@ jobs:
     env:
       FLAVOR: ${{ inputs.flavor }}
       FLAVOR_RELEASE: ${{ inputs.flavor_release }}
+      TEMP_IMAGE: ttl.sh/${{ inputs.flavor }}-${{ inputs.flavor_release}}-${{ github.sha }}:6h
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5
         with:
           go-version-file: tests/go.mod
           cache-dependency-path: tests/go.sum
@@ -48,7 +50,7 @@ jobs:
           # https://askubuntu.com/a/1081326
           sudo setfacl -m u:runner:rwx /dev/kvm
       - name: Install earthly
-        uses: Luet-lab/luet-install-action@v1.1
+        uses: Luet-lab/luet-install-action@cec77490c3f2416d7d07a47cfab04d448641d7ce # v1.1
         with:
           repository: quay.io/kairos/packages
           packages: utils/earthly
@@ -63,16 +65,14 @@ jobs:
             --BASE_IMAGE=${{ inputs.base_image }} \
             --BOOTLOADER=systemd-boot
       - name: Push image to ttl.sh
-        env:
-          TEMP_IMAGE: ttl.sh/${{ inputs.flavor }}-${{ inputs.flavor_release}}-${{ github.head_ref || github.ref }}:24h
         run: |
           docker tag $(cat build/IMAGE) $TEMP_IMAGE
           docker push $TEMP_IMAGE
       - name: Build uki ISO 🔧
         run: |
           earthly +uki-iso \
-            --BASE_IMAGE=ttl.sh/${{ inputs.flavor }}-${{ inputs.flavor_release }}-${{ github.head_ref || github.ref }}:24h \
-            --ENKI_CREATE_CI_KEYS=true
+            --BASE_IMAGE=$TEMP_IMAGE \
+            --ENKI_OVERLAY_DIR=tests/assets/sysext/ --ENKI_KEYS_DIR=tests/assets/keys/
       - name: Create datasource iso 🔧
         run: |
           earthly +datasource-iso --CLOUD_CONFIG=tests/assets/uki-install.yaml
@@ -92,7 +92,7 @@ jobs:
           go run github.com/onsi/ginkgo/v2/ginkgo -v --label-filter "uki" --fail-fast -r ./tests/
       - name: Install kairos-agent (for versioneer)
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && inputs.flavor == 'ubuntu' }}
-        uses: Luet-lab/luet-install-action@v1.1
+        uses: Luet-lab/luet-install-action@cec77490c3f2416d7d07a47cfab04d448641d7ce # v1.1
         with:
           repository: quay.io/kairos/packages
           packages: system/kairos-agent
@@ -113,7 +113,7 @@ jobs:
           docker push "$IMAGE$SUFFIX"
           image_ref=$(docker image inspect --format='{{index .RepoDigests 0}}' "$IMAGE$SUFFIX")
           cosign sign $image_ref
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         if: failure()
         with:
           name: ${{ env.FLAVOR }}-${{ env.FLAVOR_RELEASE }}.logs.zip
